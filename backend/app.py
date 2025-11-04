@@ -1,10 +1,7 @@
-from flask import Flask, request, jsonify
-from flask_jwt_extended import (
-    JWTManager, create_access_token, jwt_required, get_jwt_identity
-)
+from flask import Flask, request, jsonify, render_template
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import boto3, bcrypt, uuid, datetime, os
 from dotenv import load_dotenv
-from boto3.dynamodb.conditions import Attr
 
 # Load environment variables
 load_dotenv()
@@ -14,80 +11,69 @@ app.config['JWT_SECRET_KEY'] = os.getenv("JWT_SECRET")
 
 jwt = JWTManager(app)
 
-# Initialize AWS resources
+# AWS setup
 dynamodb = boto3.resource('dynamodb', region_name=os.getenv("AWS_REGION"))
 s3 = boto3.client('s3')
 
-# DynamoDB tables and S3 bucket
 users_table = dynamodb.Table(os.getenv("USERS_TABLE"))
 files_table = dynamodb.Table(os.getenv("FILES_TABLE"))
 bucket = os.getenv("S3_BUCKET")
 
-# ---------- ROOT ROUTE ----------
-@app.route('/', methods=['GET'])
+# ---------- HOME PAGE ----------
+@app.route('/')
 def home():
+    return render_template("index.html")
+
+# ---------- HEALTH CHECK ----------
+@app.route('/api', methods=['GET'])
+def api_root():
     return jsonify({"message": "✅ Smart Drive API is running successfully"}), 200
 
-
-# ---------- USER REGISTRATION ----------
+# ---------- REGISTER ----------
 @app.route('/api/auth/register', methods=['POST'])
 def register():
     data = request.json
-    if not data or 'email' not in data or 'password' not in data:
-        return jsonify({'error': 'Email and password are required'}), 400
+    email, password = data.get('email'), data.get('password')
 
-    email = data['email']
-    password = data['password']
+    if not email or not password:
+        return jsonify({'error': 'Email and password required'}), 400
 
-    # Check if user already exists
-    res = users_table.scan(
-        FilterExpression=Attr('email').eq(email)
-    )
-    if res['Items']:
-        return jsonify({'error': 'User already exists'}), 409
-
-    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     user_id = str(uuid.uuid4())
 
     users_table.put_item(Item={
         'user_id': user_id,
         'email': email,
-        'password': hashed_pw
+        'password': hashed
     })
 
-    return jsonify({'message': 'User registered successfully', 'user_id': user_id}), 201
+    return jsonify({'msg': 'User registered successfully', 'user_id': user_id}), 201
 
-
-# ---------- USER LOGIN ----------
+# ---------- LOGIN ----------
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.json
-    if not data or 'email' not in data or 'password' not in data:
-        return jsonify({'error': 'Email and password are required'}), 400
-
-    email = data['email']
-    password = data['password']
+    email, password = data.get('email'), data.get('password')
 
     res = users_table.scan(
-        FilterExpression=Attr('email').eq(email)
+        FilterExpression="email = :e",
+        ExpressionAttributeValues={":e": email}
     )
 
     if not res['Items']:
         return jsonify({'error': 'User not found'}), 404
 
     user = res['Items'][0]
-
     if bcrypt.checkpw(password.encode(), user['password'].encode()):
         token = create_access_token(identity=user['user_id'])
         return jsonify({'token': token}), 200
 
     return jsonify({'error': 'Invalid password'}), 401
 
-
-# ---------- FILE UPLOAD ----------
+# ---------- UPLOAD FILE ----------
 @app.route('/api/files/upload', methods=['POST'])
 @jwt_required()
-def upload_file():
+def upload():
     user_id = get_jwt_identity()
 
     if 'file' not in request.files:
@@ -110,18 +96,16 @@ def upload_file():
 
     return jsonify({'file_url': file_url}), 201
 
-
 # ---------- LIST FILES ----------
 @app.route('/api/files', methods=['GET'])
 @jwt_required()
 def list_files():
     user_id = get_jwt_identity()
-
     res = files_table.scan(
-        FilterExpression=Attr('owner_id').eq(user_id)
+        FilterExpression="owner_id = :u",
+        ExpressionAttributeValues={":u": user_id}
     )
     return jsonify(res['Items']), 200
-
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
