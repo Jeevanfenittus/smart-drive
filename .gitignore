@@ -1,0 +1,4 @@
+.env
+*.pem
+venv/
+backend/.env
