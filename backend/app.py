@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import boto3, bcrypt, uuid, datetime, os
 from dotenv import load_dotenv
@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("JWT_SECRET")
 app.config['JWT_SECRET_KEY'] = os.getenv("JWT_SECRET")
 
 jwt = JWTManager(app)
@@ -19,10 +20,24 @@ users_table = dynamodb.Table(os.getenv("USERS_TABLE"))
 files_table = dynamodb.Table(os.getenv("FILES_TABLE"))
 bucket = os.getenv("S3_BUCKET")
 
-# ---------- HOME PAGE ----------
+# ---------- FRONTEND ROUTES ----------
 @app.route('/')
 def home():
     return render_template("index.html")
+
+@app.route('/register')
+def register_page():
+    return render_template("register.html")
+
+@app.route('/login')
+def login_page():
+    return render_template("login.html")
+
+@app.route('/dashboard')
+def dashboard_page():
+    if 'token' not in session:
+        return redirect(url_for('login_page'))
+    return render_template("dashboard.html")
 
 # ---------- HEALTH CHECK ----------
 @app.route('/api', methods=['GET'])
@@ -32,11 +47,18 @@ def api_root():
 # ---------- REGISTER ----------
 @app.route('/api/auth/register', methods=['POST'])
 def register():
-    data = request.json
+    data = request.form or request.json
     email, password = data.get('email'), data.get('password')
 
     if not email or not password:
         return jsonify({'error': 'Email and password required'}), 400
+
+    res = users_table.scan(
+        FilterExpression="email = :e",
+        ExpressionAttributeValues={":e": email}
+    )
+    if res['Items']:
+        return jsonify({'error': 'Email already registered'}), 400
 
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     user_id = str(uuid.uuid4())
@@ -52,7 +74,7 @@ def register():
 # ---------- LOGIN ----------
 @app.route('/api/auth/login', methods=['POST'])
 def login():
-    data = request.json
+    data = request.form or request.json
     email, password = data.get('email'), data.get('password')
 
     res = users_table.scan(
@@ -66,7 +88,8 @@ def login():
     user = res['Items'][0]
     if bcrypt.checkpw(password.encode(), user['password'].encode()):
         token = create_access_token(identity=user['user_id'])
-        return jsonify({'token': token}), 200
+        session['token'] = token
+        return redirect(url_for('dashboard_page'))
 
     return jsonify({'error': 'Invalid password'}), 401
 
@@ -106,6 +129,14 @@ def list_files():
         ExpressionAttributeValues={":u": user_id}
     )
     return jsonify(res['Items']), 200
+
+
+# ---------- LOGOUT ----------
+@app.route('/logout')
+def logout():
+    session.pop('token', None)
+    return redirect(url_for('login_page'))
+
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)

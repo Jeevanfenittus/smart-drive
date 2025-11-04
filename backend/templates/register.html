@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Drive | Register</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #0d6efd, #6610f2);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-family: 'Poppins', sans-serif;
+    }
+    .card {
+      background: rgba(255,255,255,0.1);
+      border: none;
+      backdrop-filter: blur(12px);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      width: 400px;
+    }
+    input {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+    }
+    input::placeholder { color: #e5e5e5; }
+    .btn-custom {
+      background-color: #ffde59;
+      border: none;
+      color: black;
+      font-weight: 600;
+      width: 100%;
+    }
+    .btn-custom:hover {
+      background-color: #ffd633;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="card text-center">
+    <h2 class="mb-3">📝 Create Account</h2>
+    <form id="registerForm">
+      <div class="mb-3">
+        <input type="email" id="email" class="form-control" placeholder="Email" required>
+      </div>
+      <div class="mb-3">
+        <input type="password" id="password" class="form-control" placeholder="Password" required>
+      </div>
+      <button type="submit" class="btn btn-custom mt-2">Register</button>
+    </form>
+
+    <p class="mt-3 mb-0">Already have an account? 
+      <a href="/login" class="text-warning text-decoration-none">Login</a>
+    </p>
+
+    <div id="message" class="mt-3"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById('registerForm');
+    const msg = document.getElementById('message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.innerHTML = '⏳ Registering...';
+
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: document.getElementById('email').value,
+          password: document.getElementById('password').value
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        msg.innerHTML = `✅ ${data.msg}`;
+        setTimeout(() => window.location.href = '/login', 1500);
+      } else {
+        msg.innerHTML = `❌ ${data.error || 'Something went wrong'}`;
+      }
+    });
+  </script>
+</body>
+</html>
